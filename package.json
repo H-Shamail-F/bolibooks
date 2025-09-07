@@ -1,0 +1,35 @@
+{
+  "name": "bolibooks",
+  "version": "1.0.0",
+  "description": "Complete invoicing and business management application for small businesses",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "backend:dev": "cd backend && npm run dev",
+    "frontend:dev": "cd frontend && npm start",
+    "backend:start": "cd backend && npm start",
+    "frontend:build": "cd frontend && npm run build",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "test": "cd backend && npm test && cd ../frontend && npm test",
+    "build": "cd frontend && npm run build",
+    "lint": "cd backend && npm run lint && cd ../frontend && npm run lint"
+  },
+  "keywords": [
+    "invoicing",
+    "business-management",
+    "inventory",
+    "accounting",
+    "react",
+    "nodejs",
+    "express"
+  ],
+  "author": "BoliBooks Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "frontend",
+    "backend"
+  ]
+}
