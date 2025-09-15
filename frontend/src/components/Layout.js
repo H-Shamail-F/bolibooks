@@ -11,7 +11,10 @@ import {
   Bars3Icon,
   XMarkIcon,
   BellIcon,
-  UserCircleIcon
+  UserCircleIcon,
+  ShoppingCartIcon,
+  ClipboardDocumentListIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../hooks/useAuth';
 
@@ -20,15 +23,23 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const { user, logout } = useAuth();
 
-  const navigation = [
+  const baseNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'Invoices', href: '/invoices', icon: DocumentTextIcon },
+    { name: 'Portal', href: '/portal', icon: ClipboardDocumentListIcon },
     { name: 'Customers', href: '/customers', icon: UsersIcon },
     { name: 'Products', href: '/products', icon: CubeIcon },
+    { name: 'POS', href: '/pos', icon: ShoppingCartIcon },
     { name: 'Expenses', href: '/expenses', icon: BanknotesIcon },
     { name: 'Reports', href: '/reports', icon: ChartBarIcon },
     { name: 'Settings', href: '/settings', icon: CogIcon },
   ];
+
+  // Add super admin navigation for super admin users
+  const navigation = user?.role === 'super_admin' ? [
+    { name: 'Super Admin', href: '/super-admin', icon: ShieldCheckIcon },
+    ...baseNavigation
+  ] : baseNavigation;
 
   const handleLogout = async () => {
     await logout();

@@ -14,16 +14,24 @@ const authMiddleware = async (req, res, next) => {
     // Get user with company information
     const user = await models.User.findOne({
       where: { id: decoded.id, isActive: true },
-      include: [{ model: models.Company, attributes: ['id', 'name', 'subscriptionStatus'] }]
+      include: [{ 
+        model: models.Company, 
+        attributes: ['id', 'name', 'subscriptionStatus', 'gstRate', 'currency', 'settings'] 
+      }]
     });
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid token. User not found.' });
     }
 
-    // Check if company subscription is active
-    if (user.Company?.subscriptionStatus === 'suspended') {
-      return res.status(403).json({ error: 'Company subscription is suspended.' });
+    // Check if company subscription is active (skip for super admin)
+    if (user.role !== 'super_admin') {
+      if (user.Company?.subscriptionStatus === 'suspended') {
+        return res.status(403).json({ error: 'Company subscription is suspended.' });
+      }
+      if (user.Company?.subscriptionStatus === 'pending') {
+        return res.status(403).json({ error: 'Company account is pending approval. Please contact support.' });
+      }
     }
 
     req.user = {
@@ -65,9 +73,17 @@ const requireOwner = requireRole(['owner']);
 // Middleware for admins and owners
 const requireAdmin = requireRole(['owner', 'admin']);
 
+// Middleware for super admin only
+const requireSuperAdmin = requireRole(['super_admin']);
+
+// Middleware for super admin and owners
+const requireSuperAdminOrOwner = requireRole(['super_admin', 'owner']);
+
 module.exports = {
   authMiddleware,
   requireRole,
   requireOwner,
-  requireAdmin
+  requireAdmin,
+  requireSuperAdmin,
+  requireSuperAdminOrOwner
 };

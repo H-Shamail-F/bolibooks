@@ -77,7 +77,7 @@ router.put('/profile', [
     // Only owners can update certain sensitive fields
     if (req.user.role !== 'owner') {
       const restrictedFields = ['subscriptionStatus', 'subscriptionPlan', 'maxUsers', 'maxInvoicesPerMonth'];
-      const hasRestrictedFields = restrictedFields.some(field => req.body.hasOwnProperty(field));
+      const hasRestrictedFields = restrictedFields.some(field => Object.prototype.hasOwnProperty.call(req.body, field));
       
       if (hasRestrictedFields) {
         return res.status(403).json({ error: 'Insufficient permissions to update subscription settings' });
@@ -124,6 +124,74 @@ router.post('/logo', upload.single('logo'), async (req, res) => {
   } catch (error) {
     console.error('Error uploading logo:', error);
     res.status(500).json({ error: 'Failed to upload logo' });
+  }
+});
+
+// Get company usage statistics
+router.get('/usage-stats', async (req, res) => {
+  try {
+    const company = await models.Company.findByPk(req.user.companyId, {
+      include: [{
+        model: models.SubscriptionPlan,
+        required: false
+      }]
+    });
+
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    // Get current usage
+    const [userCount, productCount] = await Promise.all([
+      models.User.count({ where: { companyId: company.id, isActive: true } }),
+      models.Product.count({ where: { companyId: company.id, isActive: true } })
+    ]);
+
+    const branchCount = 1; // For now, assume 1 branch
+    const storageUsed = 0; // TODO: Calculate actual storage usage
+
+    // Get add-ons
+    const addOns = company.settings?.addOns || [];
+    const extraUsers = addOns.find(addon => addon.type === 'extraUser')?.quantity || 0;
+    const extraSKUs = (addOns.find(addon => addon.type === 'extraSKUs')?.quantity || 0) * 1000;
+    const extraBranches = addOns.find(addon => addon.type === 'extraBranch')?.quantity || 0;
+
+    const usage = {
+      users: {
+        current: userCount,
+        limit: (company.SubscriptionPlan?.maxUsers || 0) + extraUsers,
+        baseLimit: company.SubscriptionPlan?.maxUsers || 0,
+        addOnLimit: extraUsers
+      },
+      products: {
+        current: productCount,
+        limit: (company.SubscriptionPlan?.maxProducts || 0) + extraSKUs,
+        baseLimit: company.SubscriptionPlan?.maxProducts || 0,
+        addOnLimit: extraSKUs
+      },
+      branches: {
+        current: branchCount,
+        limit: (company.SubscriptionPlan?.maxBranches || 0) + extraBranches,
+        baseLimit: company.SubscriptionPlan?.maxBranches || 0,
+        addOnLimit: extraBranches
+      },
+      storage: {
+        current: storageUsed,
+        limit: company.SubscriptionPlan?.maxStorageGB || 0,
+        unit: 'GB'
+      }
+    };
+
+    res.json({
+      success: true,
+      data: usage
+    });
+  } catch (error) {
+    console.error('Error fetching usage stats:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch usage statistics' 
+    });
   }
 });
 
@@ -310,6 +378,32 @@ router.put('/portal/settings', async (req, res) => {
   } catch (error) {
     console.error('Error updating portal settings:', error);
     res.status(500).json({ error: 'Failed to update portal settings' });
+  }
+});
+
+// Get available subscription plans
+router.get('/subscription-plans', async (req, res) => {
+  try {
+    const plans = await models.SubscriptionPlan.findAll({
+      attributes: ['id', 'name', 'price', 'billingPeriod', 'features', 'maxUsers', 'maxProducts', 'maxStorageGB', 'description'],
+      where: { isActive: true },
+      order: [['sortOrder', 'ASC'], ['price', 'ASC']]
+    });
+    
+    // Transform the data to include limits object for backward compatibility
+    const transformedPlans = plans.map(plan => ({
+      ...plan.toJSON(),
+      limits: {
+        maxUsers: plan.maxUsers,
+        maxProducts: plan.maxProducts,
+        maxStorageGB: plan.maxStorageGB
+      }
+    }));
+    
+    res.json(transformedPlans);
+  } catch (error) {
+    console.error('Error fetching subscription plans:', error);
+    res.status(500).json({ error: 'Failed to fetch subscription plans' });
   }
 });
 

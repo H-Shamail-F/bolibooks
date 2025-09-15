@@ -93,6 +93,40 @@ module.exports = (sequelize) => {
     notes: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    gstApplicable: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      allowNull: false
+    },
+    gstRate: {
+      type: DataTypes.DECIMAL(5, 2),
+      defaultValue: 0.00,
+      validate: {
+        min: 0,
+        max: 100
+      }
+    },
+    packagingType: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      validate: {
+        isIn: [['jar', 'bottle', 'box', 'pack', 'bag', 'carton', 'container', 'tube', 'sachet', 'pouch', 'piece', 'set']]
+      }
+    },
+    packagingQuantity: {
+      type: DataTypes.INTEGER,
+      defaultValue: 1,
+      validate: {
+        min: 1
+      }
+    },
+    pricePerUnit: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      validate: {
+        min: 0
+      }
     }
   }, {
     tableName: 'products',

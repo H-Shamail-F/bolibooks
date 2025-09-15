@@ -12,7 +12,12 @@ import Expenses from './pages/Expenses';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
-import { useAuth, AuthProvider } from './hooks/useAuth';
+import POS from './pages/POS';
+import POSSales from './pages/POSSales';
+import POSReports from './pages/POSReports';
+import Portal from './pages/Portal';
+import SuperAdmin from './pages/SuperAdmin';
+import { useAuth, AuthProvider } from './hooks/useAuth-debug';
 import './styles/globals.css';
 
 const queryClient = new QueryClient({
@@ -44,8 +49,11 @@ function AppRoutes() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading BoliBooks...</p>
+        </div>
       </div>
     );
   }
@@ -72,6 +80,11 @@ function AppRoutes() {
         <Route path="/expenses" element={<Expenses />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/pos" element={<POS />} />
+        <Route path="/pos/sales" element={<POSSales />} />
+        <Route path="/pos/reports" element={<POSReports />} />
+        <Route path="/portal" element={<Portal />} />
+        <Route path="/super-admin" element={<SuperAdmin />} />
         <Route path="/login" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

@@ -32,15 +32,15 @@ router.post('/register', [
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create company first
+    // Create company as trial; gate access with awaitingTrialApproval flag
     const company = await models.Company.create({
       name: companyName,
       address: companyAddress,
       phone: companyPhone,
-      subscriptionStatus: 'trial', // 30-day trial
+      subscriptionStatus: 'trial', // Company model enum allows: trial | active | suspended | cancelled
       settings: {
-        trialStartDate: new Date(),
-        trialEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+        registrationDate: new Date(),
+        awaitingTrialApproval: true
       }
     });
 
@@ -232,6 +232,18 @@ router.put('/change-password', [
   } catch (error) {
     console.error('Change password error:', error);
     res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// Get all users
+router.get('/all', async (req, res) => {
+  try {
+    const users = await models.User.findAll({
+      attributes: { exclude: ['password'] }
+    });
+    res.json({ users });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 

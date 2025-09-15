@@ -4,6 +4,30 @@ const { models } = require('../database');
 const { authMiddleware } = require('../middleware/auth');
 const router = express.Router();
 
+// Mock PayPal service (replace with actual implementation when needed)
+const paypalService = {
+  createOrder: async () => ({
+    id: 'MOCK_ORDER_' + Date.now(),
+    links: [{ rel: 'approve', href: 'https://example.com/approve' }]
+  }),
+  captureOrder: async () => ({
+    id: 'MOCK_CAPTURE_' + Date.now(),
+    status: 'COMPLETED',
+    purchase_units: [{
+      payments: {
+        captures: [{
+          amount: { value: '100.00' }
+        }]
+      }
+    }]
+  }),
+  createSubscription: async () => ({
+    id: 'MOCK_SUB_' + Date.now(),
+    links: [{ rel: 'approve', href: 'https://example.com/approve-sub' }]
+  }),
+  cancelSubscription: async () => ({ status: 'CANCELLED' })
+};
+
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
@@ -325,6 +349,209 @@ router.get('/invoice/:invoiceId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching invoice payments:', error);
     res.status(500).json({ error: 'Failed to fetch invoice payments' });
+  }
+});
+
+// PayPal Routes
+
+// Create PayPal order
+router.post('/paypal/create-order', async (req, res) => {
+  try {
+    const { amount, currency = 'USD', invoiceId } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
+    }
+    
+    const order = await paypalService.createOrder({
+      amount: parseFloat(amount),
+      currency,
+      description: invoiceId ? `Invoice #${invoiceId}` : 'Payment',
+      invoiceId
+    });
+    
+    res.json({
+      success: true,
+      orderID: order.id,
+      approvalUrl: order.links.find(link => link.rel === 'approve')?.href
+    });
+  } catch (error) {
+    console.error('PayPal order creation failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to create PayPal order',
+      details: error.message 
+    });
+  }
+});
+
+// Capture PayPal order
+router.post('/paypal/capture-order', async (req, res) => {
+  try {
+    const { orderID, invoiceId } = req.body;
+    
+    if (!orderID) {
+      return res.status(400).json({ error: 'Order ID is required' });
+    }
+    
+    const captureResult = await paypalService.captureOrder(orderID);
+    
+    if (captureResult.status === 'COMPLETED') {
+      // Record payment in database if invoice ID provided
+      if (invoiceId) {
+        const invoice = await models.Invoice.findOne({
+          where: { id: invoiceId, companyId: req.user.companyId }
+        });
+        
+        if (invoice) {
+          const amount = parseFloat(captureResult.purchase_units[0].payments.captures[0].amount.value);
+          
+          await models.Payment.create({
+            invoiceId,
+            companyId: req.user.companyId,
+            amount,
+            method: 'paypal',
+            reference: orderID,
+            status: 'completed',
+            paymentGatewayId: captureResult.id,
+            gatewayResponse: captureResult
+          });
+          
+          // Update invoice
+          const newPaidAmount = invoice.paidAmount + amount;
+          await invoice.update({
+            paidAmount: newPaidAmount,
+            status: newPaidAmount >= invoice.total ? 'paid' : 'partially_paid'
+          });
+        }
+      }
+      
+      res.json({
+        success: true,
+        captureID: captureResult.id,
+        status: captureResult.status
+      });
+    } else {
+      res.status(400).json({ 
+        success: false, 
+        error: 'Payment capture failed',
+        status: captureResult.status 
+      });
+    }
+  } catch (error) {
+    console.error('PayPal capture failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to capture PayPal payment',
+      details: error.message 
+    });
+  }
+});
+
+// Create PayPal subscription
+router.post('/paypal/create-subscription', async (req, res) => {
+  try {
+    const { planId, customerId } = req.body;
+    
+    if (!planId) {
+      return res.status(400).json({ error: 'Plan ID is required' });
+    }
+    
+    const subscription = await paypalService.createSubscription({
+      planId,
+      customerId: customerId || req.user.id,
+      companyId: req.user.companyId
+    });
+    
+    res.json({
+      success: true,
+      subscriptionID: subscription.id,
+      approvalUrl: subscription.links.find(link => link.rel === 'approve')?.href
+    });
+  } catch (error) {
+    console.error('PayPal subscription creation failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to create PayPal subscription',
+      details: error.message 
+    });
+  }
+});
+
+// Cancel PayPal subscription
+router.post('/paypal/cancel-subscription', async (req, res) => {
+  try {
+    const { subscriptionId, reason = 'User requested cancellation' } = req.body;
+    
+    if (!subscriptionId) {
+      return res.status(400).json({ error: 'Subscription ID is required' });
+    }
+    
+    await paypalService.cancelSubscription(subscriptionId, reason);
+    
+    // Update company subscription status
+    await models.Company.update(
+      { subscriptionStatus: 'cancelled' },
+      { where: { id: req.user.companyId } }
+    );
+    
+    res.json({
+      success: true,
+      message: 'Subscription cancelled successfully'
+    });
+  } catch (error) {
+    console.error('PayPal subscription cancellation failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to cancel PayPal subscription',
+      details: error.message 
+    });
+  }
+});
+
+// PayPal webhook handler
+router.post('/paypal/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const isValid = await paypalService.verifyWebhook(
+      req.headers,
+      req.body
+    );
+    
+    if (!isValid) {
+      console.error('Invalid PayPal webhook signature');
+      return res.status(400).json({ error: 'Invalid webhook signature' });
+    }
+    
+    const event = JSON.parse(req.body.toString());
+    console.log('PayPal webhook event:', event.event_type);
+    
+    // Handle different event types
+    switch (event.event_type) {
+      case 'PAYMENT.CAPTURE.COMPLETED': {
+        // Handle successful payment
+        const capture = event.resource;
+        console.log('Payment captured:', capture.id);
+        break;
+      }
+        
+      case 'BILLING.SUBSCRIPTION.ACTIVATED': {
+        // Handle subscription activation
+        const subscription = event.resource;
+        console.log('Subscription activated:', subscription.id);
+        break;
+      }
+        
+      case 'BILLING.SUBSCRIPTION.CANCELLED': {
+        // Handle subscription cancellation
+        const cancelledSub = event.resource;
+        console.log('Subscription cancelled:', cancelledSub.id);
+        break;
+      }
+        
+      default:
+        console.log('Unhandled PayPal webhook event:', event.event_type);
+    }
+    
+    res.json({ received: true });
+  } catch (error) {
+    console.error('PayPal webhook error:', error);
+    res.status(400).json({ error: 'Webhook processing failed' });
   }
 });
 

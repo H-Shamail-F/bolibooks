@@ -4,9 +4,10 @@ const { models } = require('../database');
 const { authMiddleware } = require('../middleware/auth');
 const multer = require('multer');
 const csv = require('csv-parser');
-const xlsx = require('xlsx');
+const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
+const BarcodeUtils = require('../utils/barcodeUtils');
 const router = express.Router();
 
 // Apply auth middleware to all routes
@@ -117,6 +118,125 @@ router.get('/categories', async (req, res) => {
   } catch (error) {
     console.error('Error fetching categories:', error);
     res.status(500).json({ error: 'Failed to fetch categories' });
+  }
+});
+
+// Get product by barcode
+router.get('/barcode/:barcode', async (req, res) => {
+  try {
+    const product = await models.Product.findOne({
+      where: { 
+        barcode: req.params.barcode, 
+        companyId: req.user.companyId,
+        isActive: true 
+      }
+    });
+
+    if (!product) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Product not found',
+        barcode: req.params.barcode
+      });
+    }
+
+    // Check stock availability for POS use
+    const stockInfo = {
+      available: product.trackInventory ? product.stockQuantity > 0 : true,
+      quantity: product.stockQuantity,
+      lowStock: product.trackInventory && product.stockQuantity <= product.lowStockThreshold
+    };
+
+    res.json({
+      success: true,
+      data: {
+        ...product.toJSON(),
+        stockInfo
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching product by barcode:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to fetch product by barcode' 
+    });
+  }
+});
+
+// Validate barcode (check if it's already in use)
+router.get('/barcode-check/:barcode', async (req, res) => {
+  try {
+    const existingProduct = await models.Product.findOne({
+      where: { 
+        barcode: req.params.barcode,
+        companyId: req.user.companyId 
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        available: !existingProduct,
+        existingProduct: existingProduct ? {
+          id: existingProduct.id,
+          name: existingProduct.name,
+          sku: existingProduct.sku,
+          isActive: existingProduct.isActive
+        } : null
+      }
+    });
+  } catch (error) {
+    console.error('Error checking barcode availability:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to check barcode availability' 
+    });
+  }
+});
+
+// Search products by barcode pattern (for partial barcode scanning)
+router.get('/search/barcode/:pattern', async (req, res) => {
+  try {
+    const { pattern } = req.params;
+    const { limit = 10 } = req.query;
+
+    if (pattern.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Search pattern must be at least 3 characters'
+      });
+    }
+
+    const products = await models.Product.findAll({
+      where: {
+        companyId: req.user.companyId,
+        isActive: true,
+        barcode: {
+          [models.sequelize.Op.like]: `%${pattern}%`
+        }
+      },
+      attributes: ['id', 'name', 'sku', 'barcode', 'price', 'stockQuantity', 'lowStockThreshold', 'trackInventory'],
+      limit: parseInt(limit),
+      order: [['name', 'ASC']]
+    });
+
+    res.json({
+      success: true,
+      data: products.map(product => ({
+        ...product.toJSON(),
+        stockInfo: {
+          available: product.trackInventory ? product.stockQuantity > 0 : true,
+          quantity: product.stockQuantity,
+          lowStock: product.trackInventory && product.stockQuantity <= product.lowStockThreshold
+        }
+      }))
+    });
+  } catch (error) {
+    console.error('Error searching products by barcode:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to search products by barcode' 
+    });
   }
 });
 
@@ -312,45 +432,72 @@ router.post('/bulk-upload', upload.single('file'), async (req, res) => {
 });
 
 // Download bulk upload template
-router.get('/bulk-upload/template', (req, res) => {
-  const templateData = [
-    {
-      name: 'Sample Product 1',
-      description: 'Sample product description',
-      sku: 'SP001',
-      category: 'Electronics',
-      unit: 'pcs',
-      price: 99.99,
-      cost: 50.00,
-      stockQuantity: 100,
-      lowStockThreshold: 10,
-      trackInventory: true,
-      tags: 'electronics,sample'
-    },
-    {
-      name: 'Sample Product 2',
-      description: 'Another sample product',
-      sku: 'SP002',
-      category: 'Books',
-      unit: 'pcs',
-      price: 29.99,
-      cost: 15.00,
-      stockQuantity: 50,
-      lowStockThreshold: 5,
-      trackInventory: true,
-      tags: 'books,education'
-    }
-  ];
+router.get('/bulk-upload/template', async (req, res) => {
+  try {
+    const templateData = [
+      {
+        name: 'Sample Product 1',
+        description: 'Sample product description',
+        sku: 'SP001',
+        category: 'Electronics',
+        unit: 'pcs',
+        price: 99.99,
+        cost: 50.00,
+        stockQuantity: 100,
+        lowStockThreshold: 10,
+        trackInventory: true,
+        tags: 'electronics,sample'
+      },
+      {
+        name: 'Sample Product 2',
+        description: 'Another sample product',
+        sku: 'SP002',
+        category: 'Books',
+        unit: 'pcs',
+        price: 29.99,
+        cost: 15.00,
+        stockQuantity: 50,
+        lowStockThreshold: 5,
+        trackInventory: true,
+        tags: 'books,education'
+      }
+    ];
 
-  const ws = xlsx.utils.json_to_sheet(templateData);
-  const wb = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(wb, ws, 'Products');
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Products');
+    
+    // Add headers
+    const headers = Object.keys(templateData[0]);
+    worksheet.addRow(headers);
+    
+    // Add data rows
+    templateData.forEach(row => {
+      worksheet.addRow(Object.values(row));
+    });
+    
+    // Style the header row
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFCCCCCC' }
+    };
+    
+    // Auto-fit column widths
+    worksheet.columns.forEach(column => {
+      column.width = 15;
+    });
 
-  const buffer = xlsx.write(wb, { bookType: 'xlsx', type: 'buffer' });
+    const buffer = await workbook.xlsx.writeBuffer();
 
-  res.setHeader('Content-Disposition', 'attachment; filename=product-template.xlsx');
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.send(buffer);
+    res.setHeader('Content-Disposition', 'attachment; filename=product-template.xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  } catch (error) {
+    console.error('Error generating template:', error);
+    res.status(500).json({ error: 'Failed to generate template' });
+  }
 });
 
 // Helper functions
@@ -366,10 +513,34 @@ async function parseCSV(filePath) {
 }
 
 async function parseExcel(filePath) {
-  const workbook = xlsx.readFile(filePath);
-  const sheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[sheetName];
-  return xlsx.utils.sheet_to_json(worksheet);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.getWorksheet(1); // Get first worksheet
+  
+  const jsonData = [];
+  const headerRow = worksheet.getRow(1);
+  const headers = [];
+  
+  // Extract headers
+  headerRow.eachCell((cell, colNumber) => {
+    headers[colNumber] = cell.text;
+  });
+  
+  // Extract data rows
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber > 1) { // Skip header row
+      const rowData = {};
+      row.eachCell((cell, colNumber) => {
+        const header = headers[colNumber];
+        if (header) {
+          rowData[header] = cell.text;
+        }
+      });
+      jsonData.push(rowData);
+    }
+  });
+  
+  return jsonData;
 }
 
 async function validateAndProcessProducts(products, companyId) {
@@ -429,6 +600,195 @@ async function validateAndProcessProducts(products, companyId) {
 
   return { validProducts, errors };
 }
+
+// Generate barcode for product
+router.post('/:id/generate-barcode', async (req, res) => {
+  try {
+    const { type = 'EAN-13', companyPrefix } = req.body;
+
+    const product = await models.Product.findOne({
+      where: { id: req.params.id, companyId: req.user.companyId }
+    });
+
+    if (!product) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Product not found' 
+      });
+    }
+
+    if (product.barcode) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Product already has a barcode', 
+        existingBarcode: product.barcode 
+      });
+    }
+
+    // Get company preferences for barcode generation
+    const company = await models.Company.findByPk(req.user.companyId);
+    const preferences = {
+      type,
+      companyPrefix: companyPrefix || company?.settings?.barcodePrefix,
+    };
+
+    let barcode;
+    let attempts = 0;
+    do {
+      barcode = BarcodeUtils.generateBarcodeForProduct(req.user.companyId, product, preferences);
+      
+      // Check if barcode already exists
+      const existing = await models.Product.findOne({
+        where: { barcode, companyId: req.user.companyId }
+      });
+      
+      if (!existing) break;
+      attempts++;
+    } while (attempts < 10);
+
+    if (attempts >= 10) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to generate unique barcode after 10 attempts' 
+      });
+    }
+
+    // Update product with generated barcode
+    await product.update({ barcode });
+
+    const barcodeInfo = BarcodeUtils.detectBarcodeType(barcode);
+
+    res.json({
+      success: true,
+      data: {
+        productId: product.id,
+        productName: product.name,
+        barcode,
+        barcodeType: barcodeInfo.type,
+        formatted: BarcodeUtils.formatBarcodeForDisplay(barcode, barcodeInfo.type),
+        validation: barcodeInfo.validation
+      },
+      message: 'Barcode generated successfully'
+    });
+
+  } catch (error) {
+    console.error('Error generating barcode:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to generate barcode' 
+    });
+  }
+});
+
+// Validate barcode format
+router.post('/validate-barcode', (req, res) => {
+  try {
+    const { barcode } = req.body;
+
+    if (!barcode) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Barcode is required' 
+      });
+    }
+
+    const barcodeInfo = BarcodeUtils.detectBarcodeType(barcode);
+
+    res.json({
+      success: true,
+      data: {
+        barcode,
+        type: barcodeInfo.type,
+        validation: barcodeInfo.validation,
+        formatted: BarcodeUtils.formatBarcodeForDisplay(barcode, barcodeInfo.type)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error validating barcode:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to validate barcode' 
+    });
+  }
+});
+
+// Bulk generate barcodes for products without barcodes
+router.post('/bulk-generate-barcodes', async (req, res) => {
+  try {
+    const { type = 'EAN-13', companyPrefix, productIds } = req.body;
+
+    const whereClause = {
+      companyId: req.user.companyId,
+      barcode: null // Only products without barcodes
+    };
+
+    if (productIds && Array.isArray(productIds)) {
+      whereClause.id = { [models.sequelize.Op.in]: productIds };
+    }
+
+    const products = await models.Product.findAll({
+      where: whereClause,
+      attributes: ['id', 'name', 'sku']
+    });
+
+    if (products.length === 0) {
+      return res.json({
+        success: true,
+        data: { generated: [], skipped: 0 },
+        message: 'No products found that need barcodes'
+      });
+    }
+
+    // Get company preferences
+    const company = await models.Company.findByPk(req.user.companyId);
+    const preferences = {
+      type,
+      companyPrefix: companyPrefix || company?.settings?.barcodePrefix,
+    };
+
+    const results = BarcodeUtils.batchGenerateBarcodes(req.user.companyId, products, preferences);
+    const successful = results.filter(r => !r.error);
+    const failed = results.filter(r => r.error);
+
+    // Update products with generated barcodes
+    for (const result of successful) {
+      await models.Product.update(
+        { barcode: result.barcode },
+        { where: { id: result.productId, companyId: req.user.companyId } }
+      );
+    }
+
+    res.json({
+      success: true,
+      data: {
+        generated: successful.map(r => ({
+          productId: r.productId,
+          barcode: r.barcode,
+          type: r.type,
+          formatted: BarcodeUtils.formatBarcodeForDisplay(r.barcode, r.type)
+        })),
+        failed: failed.map(r => ({
+          productId: r.productId,
+          error: r.error
+        })),
+        stats: {
+          totalProcessed: results.length,
+          successful: successful.length,
+          failed: failed.length
+        }
+      },
+      message: `Generated ${successful.length} barcodes successfully`
+    });
+
+  } catch (error) {
+    console.error('Error bulk generating barcodes:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to bulk generate barcodes' 
+    });
+  }
+});
 
 // Adjust stock for product (used when creating invoices)
 router.patch('/:id/adjust-stock', async (req, res) => {

@@ -1,43 +1,33 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { models } = require('../database');
+const { authMiddleware } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 
-// Get company portal information by portal ID or domain
-router.get('/company/:identifier', async (req, res) => {
+// Apply authentication middleware to all portal routes
+router.use(authMiddleware);
+
+// Get company information for internal portal (authenticated users only)
+router.get('/company-info', async (req, res) => {
   try {
-    const { identifier } = req.params;
+    const companyId = req.user.companyId;
     
-    // Find company by portal identifier or custom domain
     const company = await models.Company.findOne({
-      where: {
-        [models.sequelize.Op.or]: [
-          { id: identifier },
-          { 'settings.portalId': identifier },
-          { 'settings.customDomain': identifier }
-        ],
-        subscriptionStatus: ['trial', 'active']
-      },
+      where: { id: companyId },
       attributes: ['id', 'name', 'logo', 'currency', 'gstEnabled', 'gstRate', 'settings'],
       include: [
         {
           model: models.Template,
-          where: { type: 'quote', isActive: true },
+          where: { type: ['quote', 'invoice'], isActive: true },
           required: false,
-          limit: 1,
-          order: [['isDefault', 'DESC'], ['createdAt', 'DESC']]
+          order: [['type', 'ASC'], ['isDefault', 'DESC'], ['createdAt', 'DESC']]
         }
       ]
     });
 
     if (!company) {
-      return res.status(404).json({ error: 'Company portal not found or inactive' });
-    }
-
-    // Check if portal is enabled
-    if (!company.settings?.portalEnabled) {
-      return res.status(403).json({ error: 'Customer portal is not enabled for this company' });
+      return res.status(404).json({ error: 'Company not found' });
     }
 
     res.json({
@@ -48,39 +38,25 @@ router.get('/company/:identifier', async (req, res) => {
         currency: company.currency,
         gstEnabled: company.gstEnabled,
         gstRate: company.gstRate,
-        portalSettings: company.settings.portal || {}
+        settings: company.settings || {}
       },
-      template: company.Templates?.[0] || null
+      templates: company.Templates || []
     });
   } catch (error) {
-    console.error('Error fetching company portal:', error);
+    console.error('Error fetching company information:', error);
     res.status(500).json({ error: 'Failed to fetch company information' });
   }
 });
 
-// Get company products/services for portal
-router.get('/company/:companyId/products', async (req, res) => {
+// Get company products/services for internal portal
+router.get('/products', async (req, res) => {
   try {
-    const { companyId } = req.params;
+    const companyId = req.user.companyId;
     const { category, search } = req.query;
-
-    // Verify company exists and portal is enabled
-    const company = await models.Company.findOne({
-      where: { 
-        id: companyId,
-        subscriptionStatus: ['trial', 'active'],
-        'settings.portalEnabled': true
-      }
-    });
-
-    if (!company) {
-      return res.status(404).json({ error: 'Company not found or portal not enabled' });
-    }
 
     const whereClause = {
       companyId,
-      isActive: true,
-      'settings.showInPortal': true // Only show products enabled for portal
+      isActive: true // Show all active products for internal users
     };
 
     if (category) {
@@ -120,14 +96,14 @@ router.get('/company/:companyId/products', async (req, res) => {
   }
 });
 
-// Create quote request from customer portal
-router.post('/company/:companyId/quote-request', [
-  body('customerInfo.name').notEmpty().withMessage('Customer name is required'),
-  body('customerInfo.email').isEmail().withMessage('Valid email is required'),
-  body('customerInfo.phone').optional().notEmpty().withMessage('Phone cannot be empty'),
+// Create quotation or invoice (internal users only)
+router.post('/create-document', [
+  body('type').isIn(['quote', 'invoice']).withMessage('Type must be quote or invoice'),
+  body('customerId').notEmpty().withMessage('Customer is required'),
   body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
   body('items.*.productId').notEmpty().withMessage('Product ID is required'),
   body('items.*.quantity').isNumeric().withMessage('Quantity must be a number'),
+  body('templateId').optional().isUUID(),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -135,36 +111,25 @@ router.post('/company/:companyId/quote-request', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { companyId } = req.params;
-    const { customerInfo, items, notes } = req.body;
+    const companyId = req.user.companyId;
+    const { type, customerId, items, notes, templateId, dueDate } = req.body;
 
-    // Verify company exists and portal is enabled
+    // Verify company exists
     const company = await models.Company.findOne({
-      where: { 
-        id: companyId,
-        subscriptionStatus: ['trial', 'active'],
-        'settings.portalEnabled': true
-      }
+      where: { id: companyId }
     });
 
     if (!company) {
-      return res.status(404).json({ error: 'Company not found or portal not enabled' });
+      return res.status(404).json({ error: 'Company not found' });
     }
 
-    // Find or create customer
-    let customer = await models.Customer.findOne({
-      where: { email: customerInfo.email, companyId }
+    // Get customer information
+    const customer = await models.Customer.findOne({
+      where: { id: customerId, companyId }
     });
 
     if (!customer) {
-      customer = await models.Customer.create({
-        ...customerInfo,
-        companyId,
-        notes: `Created via customer portal on ${new Date().toISOString()}`
-      });
-    } else {
-      // Update customer info if changed
-      await customer.update(customerInfo);
+      return res.status(404).json({ error: 'Customer not found' });
     }
 
     // Validate and calculate items
@@ -203,164 +168,172 @@ router.post('/company/:companyId/quote-request', [
     const gstAmount = company.gstEnabled ? (subtotal * (company.gstRate / 100)) : 0;
     const total = subtotal + gstAmount;
 
-    // Generate quote number
-    const lastQuote = await models.Invoice.findOne({
-      where: { companyId, type: 'quote' },
+    // Generate document number
+    const lastDocument = await models.Invoice.findOne({
+      where: { companyId, type },
       order: [['createdAt', 'DESC']]
     });
 
-    const quoteNumber = lastQuote 
-      ? `QTE-${String(parseInt(lastQuote.invoiceNumber.split('-')[1]) + 1).padStart(4, '0')}`
-      : 'QTE-0001';
+    const prefix = type === 'quote' ? 'QTE' : 'INV';
+    const documentNumber = lastDocument 
+      ? `${prefix}-${String(parseInt(lastDocument.invoiceNumber.split('-')[1]) + 1).padStart(4, '0')}`
+      : `${prefix}-0001`;
 
-    // Create quote (using Invoice model with type='quote')
-    const quote = await models.Invoice.create({
-      invoiceNumber: quoteNumber,
-      type: 'quote',
-      status: 'draft',
+    // Set due date
+    const docDueDate = dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Create document (quote or invoice)
+    const document = await models.Invoice.create({
+      invoiceNumber: documentNumber,
+      type,
+      status: type === 'quote' ? 'draft' : 'sent',
       customerId: customer.id,
       companyId,
-      createdBy: null, // Portal-generated quote
+      createdBy: req.user.id, // Created by authenticated user
+      templateId: templateId || null,
       issueDate: new Date(),
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days validity
+      dueDate: docDueDate,
       subtotal,
       gstEnabled: company.gstEnabled,
       gstRate: company.gstRate,
       gstAmount,
       total,
-      notes: notes || 'Generated from customer portal',
-      source: 'portal'
+      notes: notes || `${type === 'quote' ? 'Quotation' : 'Invoice'} created via internal portal`,
+      source: 'internal_portal'
     });
 
-    // Create quote items
+    // Create document items
     for (const item of quoteItems) {
       await models.InvoiceItem.create({
         ...item,
-        invoiceId: quote.id
+        invoiceId: document.id
       });
     }
 
-    // Fetch complete quote with items for response
-    const completeQuote = await models.Invoice.findByPk(quote.id, {
+    // Fetch complete document with items for response
+    const completeDocument = await models.Invoice.findByPk(document.id, {
       include: [
         { model: models.Customer },
         { model: models.InvoiceItem, as: 'items', include: [
           { model: models.Product, attributes: ['name', 'unit'] }
-        ]}
+        ]},
+        { model: models.Template, required: false }
       ]
     });
 
-    // TODO: Send notification email to company about new quote request
-    // TODO: Send confirmation email to customer
-
     res.status(201).json({
-      message: 'Quote request submitted successfully',
-      quote: completeQuote,
-      quoteId: quote.id,
-      trackingCode: `${companyId}-${quote.id}` // For customer to track status
+      message: `${type === 'quote' ? 'Quotation' : 'Invoice'} created successfully`,
+      document: completeDocument,
+      documentId: document.id,
+      documentNumber: document.invoiceNumber
     });
   } catch (error) {
     console.error('Error creating quote request:', error);
-    res.status(500).json({ error: 'Failed to submit quote request' });
+    res.status(500).json({ error: 'Failed to create document' });
   }
 });
 
-// Get quote status by tracking code
-router.get('/quote/:trackingCode', async (req, res) => {
+// Get document by ID (for internal users)
+router.get('/document/:id', async (req, res) => {
   try {
-    const { trackingCode } = req.params;
-    const [companyId, quoteId] = trackingCode.split('-');
+    const { id } = req.params;
+    const companyId = req.user.companyId;
 
-    const quote = await models.Invoice.findOne({
+    const document = await models.Invoice.findOne({
       where: { 
-        id: quoteId, 
-        companyId,
-        type: 'quote'
+        id, 
+        companyId
       },
       include: [
-        { model: models.Customer, attributes: ['name', 'email'] },
+        { model: models.Customer },
         { model: models.InvoiceItem, as: 'items', include: [
-          { model: models.Product, attributes: ['name', 'unit'] }
+          { model: models.Product, attributes: ['name', 'unit', 'description'] }
         ]},
-        { model: models.Company, attributes: ['name', 'logo', 'currency'] }
+        { model: models.Template, required: false },
+        { model: models.User, as: 'creator', attributes: ['firstName', 'lastName'], required: false }
       ]
     });
 
-    if (!quote) {
-      return res.status(404).json({ error: 'Quote not found' });
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found' });
     }
 
-    res.json({
-      quote: {
-        id: quote.id,
-        quoteNumber: quote.invoiceNumber,
-        status: quote.status,
-        total: quote.total,
-        currency: quote.Company.currency,
-        issueDate: quote.issueDate,
-        dueDate: quote.dueDate,
-        customer: quote.Customer,
-        items: quote.items,
-        company: quote.Company,
-        notes: quote.notes
-      }
-    });
+    res.json({ document });
   } catch (error) {
-    console.error('Error fetching quote status:', error);
-    res.status(500).json({ error: 'Failed to fetch quote status' });
+    console.error('Error fetching document:', error);
+    res.status(500).json({ error: 'Failed to fetch document' });
   }
 });
 
-// Customer accepts/rejects quote
-router.patch('/quote/:trackingCode/response', [
-  body('response').isIn(['accept', 'reject']).withMessage('Response must be accept or reject'),
-  body('customerNotes').optional().isString(),
-], async (req, res) => {
+// List documents (quotes and invoices) for internal users
+router.get('/documents', async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const { trackingCode } = req.params;
-    const { response, customerNotes } = req.body;
-    const [companyId, quoteId] = trackingCode.split('-');
-
-    const quote = await models.Invoice.findOne({
-      where: { 
-        id: quoteId, 
-        companyId,
-        type: 'quote',
-        status: 'sent'
-      }
-    });
-
-    if (!quote) {
-      return res.status(404).json({ error: 'Quote not found or cannot be modified' });
-    }
-
-    const newStatus = response === 'accept' ? 'accepted' : 'rejected';
-    const responseNotes = `${quote.notes}\n\nCustomer ${response}ed on ${new Date().toISOString()}${customerNotes ? ': ' + customerNotes : ''}`;
-
-    await quote.update({
-      status: newStatus,
-      notes: responseNotes,
-      customerResponse: {
-        response,
-        date: new Date(),
-        notes: customerNotes
-      }
-    });
-
-    // TODO: Send notification to company about customer response
+    const companyId = req.user.companyId;
+    const { type, status, page = 1, limit = 20 } = req.query;
     
+    const offset = (page - 1) * limit;
+    const whereClause = { companyId };
+    
+    if (type) {
+      whereClause.type = type;
+    }
+    
+    if (status) {
+      whereClause.status = status;
+    }
+
+    const { count, rows: documents } = await models.Invoice.findAndCountAll({
+      where: whereClause,
+      include: [
+        { model: models.Customer, attributes: ['name', 'email'] },
+        { model: models.User, as: 'creator', attributes: ['firstName', 'lastName'], required: false }
+      ],
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset
+    });
+
     res.json({
-      message: `Quote ${response}ed successfully`,
-      status: newStatus
+      documents,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: count,
+        pages: Math.ceil(count / limit)
+      }
     });
   } catch (error) {
-    console.error('Error updating quote response:', error);
-    res.status(500).json({ error: 'Failed to update quote response' });
+    console.error('Error fetching documents:', error);
+    res.status(500).json({ error: 'Failed to fetch documents' });
+  }
+});
+
+// Get customers for dropdown/selection
+router.get('/customers', async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const { search } = req.query;
+    
+    const whereClause = { companyId, isActive: true };
+    
+    if (search) {
+      whereClause[models.sequelize.Op.or] = [
+        { name: { [models.sequelize.Op.iLike]: `%${search}%` } },
+        { email: { [models.sequelize.Op.iLike]: `%${search}%` } }
+      ];
+    }
+    
+    const customers = await models.Customer.findAll({
+      where: whereClause,
+      attributes: ['id', 'name', 'email', 'phone'],
+      order: [['name', 'ASC']],
+      limit: 50
+    });
+    
+    res.json({ customers });
+  } catch (error) {
+    console.error('Error fetching customers:', error);
+    res.status(500).json({ error: 'Failed to fetch customers' });
   }
 });
 

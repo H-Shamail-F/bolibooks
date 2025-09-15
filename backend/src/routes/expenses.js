@@ -400,12 +400,12 @@ router.get('/stats/summary', async (req, res) => {
     const monthlyBreakdown = await models.Expense.findAll({
       where: whereClause,
       attributes: [
-        [models.sequelize.fn('DATE_TRUNC', 'month', models.sequelize.col('date')), 'month'],
+        [models.sequelize.fn('strftime', '%Y-%m', models.sequelize.col('date')), 'month'],
         [models.sequelize.fn('SUM', models.sequelize.col('amount')), 'totalAmount'],
         [models.sequelize.fn('COUNT', models.sequelize.col('id')), 'count']
       ],
-      group: [models.sequelize.fn('DATE_TRUNC', 'month', models.sequelize.col('date'))],
-      order: [[models.sequelize.fn('DATE_TRUNC', 'month', models.sequelize.col('date')), 'ASC']],
+      group: [models.sequelize.fn('strftime', '%Y-%m', models.sequelize.col('date'))],
+      order: [[models.sequelize.fn('strftime', '%Y-%m', models.sequelize.col('date')), 'ASC']],
       raw: true
     });
 

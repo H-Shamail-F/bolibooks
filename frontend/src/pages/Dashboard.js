@@ -5,8 +5,8 @@ import {
   DocumentTextIcon, 
   UsersIcon, 
   CubeIcon,
-  TrendingUpIcon,
-  TrendingDownIcon,
+  ArrowTrendingUpIcon,
+  ArrowTrendingDownIcon,
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -85,9 +85,9 @@ const Dashboard = () => {
             </div>
             <div className="mt-4 flex items-center">
               {stat.changeType === 'increase' ? (
-                <TrendingUpIcon className="h-4 w-4 text-green-500" />
+                <ArrowTrendingUpIcon className="h-4 w-4 text-green-500" />
               ) : (
-                <TrendingDownIcon className="h-4 w-4 text-red-500" />
+                <ArrowTrendingDownIcon className="h-4 w-4 text-red-500" />
               )}
               <span className={`text-sm ml-1 ${
                 stat.changeType === 'increase' ? 'text-green-600' : 'text-red-600'

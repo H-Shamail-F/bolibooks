@@ -22,6 +22,9 @@ const InvoiceItem = require('../models/InvoiceItem')(sequelize);
 const Payment = require('../models/Payment')(sequelize);
 const Expense = require('../models/Expense')(sequelize);
 const Template = require('../models/Template')(sequelize);
+const POSSale = require('../models/POSSale')(sequelize);
+const POSSaleItem = require('../models/POSSaleItem')(sequelize);
+const SubscriptionPlan = require('../models/SubscriptionPlan')(sequelize);
 
 // Define associations
 const defineAssociations = () => {
@@ -32,11 +35,17 @@ const defineAssociations = () => {
   Company.hasMany(Invoice, { foreignKey: 'companyId' });
   Company.hasMany(Expense, { foreignKey: 'companyId' });
   Company.hasMany(Template, { foreignKey: 'companyId' });
+  Company.hasMany(POSSale, { foreignKey: 'companyId' });
+  Company.belongsTo(SubscriptionPlan, { foreignKey: 'subscriptionPlanId' });
+
+  // SubscriptionPlan associations
+  SubscriptionPlan.hasMany(Company, { foreignKey: 'subscriptionPlanId' });
 
   // User associations
   User.belongsTo(Company, { foreignKey: 'companyId' });
   User.hasMany(Invoice, { foreignKey: 'createdBy' });
   User.hasMany(Expense, { foreignKey: 'createdBy' });
+  User.hasMany(POSSale, { as: 'CashierSales', foreignKey: 'cashierId' });
 
   // Customer associations
   Customer.belongsTo(Company, { foreignKey: 'companyId' });
@@ -45,6 +54,7 @@ const defineAssociations = () => {
   // Product associations
   Product.belongsTo(Company, { foreignKey: 'companyId' });
   Product.hasMany(InvoiceItem, { foreignKey: 'productId' });
+  Product.hasMany(POSSaleItem, { foreignKey: 'productId' });
 
   // Invoice associations
   Invoice.belongsTo(Company, { foreignKey: 'companyId' });
@@ -73,6 +83,16 @@ const defineAssociations = () => {
   // Invoice-Template association
   Invoice.belongsTo(Template, { foreignKey: 'templateId' });
   Template.hasMany(Invoice, { foreignKey: 'templateId' });
+
+  // POS Sale associations
+  POSSale.belongsTo(Company, { foreignKey: 'companyId' });
+  POSSale.belongsTo(User, { as: 'Cashier', foreignKey: 'cashierId' });
+  POSSale.belongsTo(Customer, { foreignKey: 'customerId' });
+  POSSale.hasMany(POSSaleItem, { foreignKey: 'saleId', as: 'items' });
+
+  // POS Sale Item associations
+  POSSaleItem.belongsTo(POSSale, { foreignKey: 'saleId' });
+  POSSaleItem.belongsTo(Product, { foreignKey: 'productId' });
 };
 
 // Initialize database
@@ -86,9 +106,10 @@ const initializeDatabase = async () => {
     defineAssociations();
 
     // Sync database (create tables if they don't exist)
+    // Avoid alter loops; only force when explicitly requested
     await sequelize.sync({ 
-      alter: process.env.NODE_ENV === 'development',
-      force: process.env.FORCE_DB_SYNC === 'true' 
+      alter: false,
+      force: process.env.FORCE_DB_SYNC === 'true'
     });
 
     console.log('✅ Database synchronized successfully.');
@@ -103,6 +124,7 @@ module.exports = {
   sequelize,
   initializeDatabase,
   models: {
+    sequelize, // Add sequelize instance to models for function access
     Company,
     User,
     Customer,
@@ -111,6 +133,9 @@ module.exports = {
     InvoiceItem,
     Payment,
     Expense,
-    Template
+    Template,
+    POSSale,
+    POSSaleItem,
+    SubscriptionPlan
   }
 };

@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BoliBooks - Test Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .section {
+            margin: 30px 0;
+            padding: 25px;
+            border: 2px solid #f0f0f0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        
+        .section.active {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        
+        .section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            display: flex;
+            align-items: center;
+        }
+        
+        .section h2::before {
+            content: "🔧";
+            margin-right: 10px;
+            font-size: 1.2em;
+        }
+        
+        .auth-section h2::before { content: "🔐"; }
+        .scanner-section h2::before { content: "📷"; }
+        .product-section h2::before { content: "📦"; }
+        .pos-section h2::before { content: "🛒"; }
+        
+        .form-group {
+            margin: 15px 0;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        input, textarea, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e1e1;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 5px 5px 5px 0;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button.secondary {
+            background: #6c757d;
+        }
+        
+        button.success {
+            background: #28a745;
+        }
+        
+        button.danger {
+            background: #dc3545;
+        }
+        
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 6px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .result.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .result.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .result.info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-indicator.online {
+            background: #28a745;
+        }
+        
+        .status-indicator.offline {
+            background: #dc3545;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        
+        .server-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            border-radius: 6px;
+            color: white;
+            font-weight: 500;
+            z-index: 1000;
+        }
+        
+        .server-status.online {
+            background: #28a745;
+        }
+        
+        .server-status.offline {
+            background: #dc3545;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="server-status" id="serverStatus">
+        <span class="status-indicator" id="statusDot"></span>
+        <span id="statusText">Checking...</span>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>📊 BoliBooks</h1>
+            <p>Complete Business Management Solution - API Test Interface</p>
+        </div>
+        
+        <div class="content">
+            <!-- Authentication Section -->
+            <div class="section auth-section" id="authSection">
+                <h2>Authentication</h2>
+                <div class="grid">
+                    <div>
+                        <h3>Register New Company</h3>
+                        <div class="form-group">
+                            <label>Email:</label>
+                            <input type="email" id="regEmail" value="owner@testcompany.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Password:</label>
+                            <input type="password" id="regPassword" value="password123">
+                        </div>
+                        <div class="form-group">
+                            <label>First Name:</label>
+                            <input type="text" id="regFirstName" value="John">
+                        </div>
+                        <div class="form-group">
+                            <label>Last Name:</label>
+                            <input type="text" id="regLastName" value="Doe">
+                        </div>
+                        <div class="form-group">
+                            <label>Company Name:</label>
+                            <input type="text" id="regCompanyName" value="Test Company Ltd">
+                        </div>
+                        <button onclick="register()">Register Company</button>
+                    </div>
+                    
+                    <div>
+                        <h3>Login</h3>
+                        <div class="form-group">
+                            <label>Email:</label>
+                            <input type="email" id="email" value="owner@testcompany.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Password:</label>
+                            <input type="password" id="password" value="password123">
+                        </div>
+                        <button onclick="login()">Login</button>
+                        <button onclick="logout()" class="secondary">Logout</button>
+                    </div>
+                </div>
+                <div id="authResult" class="result" style="display: none;"></div>
+            </div>
+
+            <!-- Product Management Section -->
+            <div class="section product-section">
+                <h2>Product Management</h2>
+                <div class="grid">
+                    <div>
+                        <h3>Create Product</h3>
+                        <div class="form-group">
+                            <label>Product Name:</label>
+                            <input type="text" id="productName" value="Sample Product">
+                        </div>
+                        <div class="form-group">
+                            <label>Price:</label>
+                            <input type="number" id="productPrice" value="29.99" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Stock Quantity:</label>
+                            <input type="number" id="productStock" value="100">
+                        </div>
+                        <div class="form-group">
+                            <label>Category:</label>
+                            <input type="text" id="productCategory" value="Electronics">
+                        </div>
+                        <button onclick="createProduct()">Create Product</button>
+                        <button onclick="generateBarcode()" class="success">Generate Barcode</button>
+                    </div>
+                    
+                    <div>
+                        <h3>Product Operations</h3>
+                        <button onclick="getProducts()">Get All Products</button>
+                        <button onclick="getLowStock()" class="secondary">Check Low Stock</button>
+                        <button onclick="bulkGenerateBarcodes()" class="success">Bulk Generate Barcodes</button>
+                    </div>
+                </div>
+                <div id="productResult" class="result" style="display: none;"></div>
+            </div>
+
+            <!-- Barcode Scanner Section -->
+            <div class="section scanner-section">
+                <h2>Barcode Scanner</h2>
+                <div class="form-group">
+                    <label>Barcode (Enter or Scan):</label>
+                    <input type="text" id="barcode" placeholder="1234567890123" autofocus>
+                </div>
+                <div>
+                    <button onclick="scanBarcode()">🔍 Scan Barcode</button>
+                    <button onclick="validateBarcode()" class="secondary">✅ Validate Format</button>
+                    <button onclick="quickAdd()" class="success">🛒 Quick Add to Cart</button>
+                </div>
+                <div id="scanResult" class="result" style="display: none;"></div>
+            </div>
+
+            <!-- POS System Section -->
+            <div class="section pos-section">
+                <h2>POS System</h2>
+                <div class="grid">
+                    <div>
+                        <h3>Create Sale</h3>
+                        <div class="form-group">
+                            <label>Payment Method:</label>
+                            <select id="paymentMethod">
+                                <option value="cash">Cash</option>
+                                <option value="card">Card</option>
+                                <option value="mobile_payment">Mobile Payment</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Amount Tendered (for cash):</label>
+                            <input type="number" id="amountTendered" value="50.00" step="0.01">
+                        </div>
+                        <button onclick="createPOSSale()">Create Sale</button>
+                        <button onclick="generateReceipt()" class="success">Generate Receipt</button>
+                    </div>
+                    
+                    <div>
+                        <h3>Reports</h3>
+                        <button onclick="getDailySales()">📊 Daily Sales Report</button>
+                        <button onclick="getScanStats()" class="secondary">📈 Scan Statistics</button>
+                        <button onclick="getAllSales()" class="secondary">📝 All Sales</button>
+                    </div>
+                </div>
+                <div id="posResult" class="result" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        let authToken = '';
+        let currentProductId = '';
+        let lastSaleId = '';
+
+        // Check server status on load
+        window.onload = function() {
+            checkServerStatus();
+            setInterval(checkServerStatus, 30000); // Check every 30 seconds
+        };
+
+        async function checkServerStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                if (data.status === 'OK') {
+                    updateServerStatus(true, 'Server Online');
+                } else {
+                    updateServerStatus(false, 'Server Error');
+                }
+            } catch (error) {
+                updateServerStatus(false, 'Server Offline');
+            }
+        }
+
+        function updateServerStatus(online, text) {
+            const statusEl = document.getElementById('serverStatus');
+            const dotEl = document.getElementById('statusDot');
+            const textEl = document.getElementById('statusText');
+            
+            statusEl.className = `server-status ${online ? 'online' : 'offline'}`;
+            dotEl.className = `status-indicator ${online ? 'online' : 'offline'}`;
+            textEl.textContent = text;
+        }
+
+        async function makeRequest(url, options = {}) {
+            try {
+                const config = {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+                    },
+                    ...options
+                };
+
+                const response = await fetch(url, config);
+                const data = await response.json();
+                
+                return { success: response.ok, data, status: response.status };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+
+        function showResult(elementId, result, type = 'info') {
+            const el = document.getElementById(elementId);
+            el.style.display = 'block';
+            el.className = `result ${type}`;
+            
+            if (typeof result === 'object') {
+                el.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+            } else {
+                el.innerHTML = result;
+            }
+        }
+
+        // Authentication Functions
+        async function register() {
+            const data = {
+                email: document.getElementById('regEmail').value,
+                password: document.getElementById('regPassword').value,
+                firstName: document.getElementById('regFirstName').value,
+                lastName: document.getElementById('regLastName').value,
+                companyName: document.getElementById('regCompanyName').value
+            };
+
+            const result = await makeRequest(`${API_BASE}/auth/register`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (result.success) {
+                showResult('authResult', '✅ Company registered successfully! You can now login.', 'success');
+            } else {
+                showResult('authResult', `❌ Registration failed: ${result.data?.error || result.error}`, 'error');
+            }
+        }
+
+        async function login() {
+            const data = {
+                email: document.getElementById('email').value,
+                password: document.getElementById('password').value
+            };
+
+            const result = await makeRequest(`${API_BASE}/auth/login`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (result.success && result.data.token) {
+                authToken = result.data.token;
+                showResult('authResult', `✅ Logged in as: ${result.data.user.firstName} ${result.data.user.lastName} (${result.data.user.companyName})`, 'success');
+                document.getElementById('authSection').classList.add('active');
+            } else {
+                showResult('authResult', `❌ Login failed: ${result.data?.error || result.error}`, 'error');
+            }
+        }
+
+        function logout() {
+            authToken = '';
+            currentProductId = '';
+            lastSaleId = '';
+            showResult('authResult', '👋 Logged out successfully', 'info');
+            document.getElementById('authSection').classList.remove('active');
+        }
+
+        // Product Functions
+        async function createProduct() {
+            if (!authToken) {
+                showResult('productResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const data = {
+                name: document.getElementById('productName').value,
+                price: parseFloat(document.getElementById('productPrice').value),
+                stockQuantity: parseInt(document.getElementById('productStock').value),
+                category: document.getElementById('productCategory').value,
+                description: `Sample product for testing BoliBooks`,
+                lowStockThreshold: 10,
+                unit: 'pcs'
+            };
+
+            const result = await makeRequest(`${API_BASE}/products`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (result.success) {
+                currentProductId = result.data.id;
+                showResult('productResult', `✅ Product created successfully! ID: ${result.data.id}`, 'success');
+            } else {
+                showResult('productResult', `❌ Failed to create product: ${result.data?.error || result.error}`, 'error');
+            }
+        }
+
+        async function generateBarcode() {
+            if (!authToken || !currentProductId) {
+                showResult('productResult', '❌ Please create a product first', 'error');
+                return;
+            }
+
+            const data = {
+                type: 'EAN-13',
+                companyPrefix: '123'
+            };
+
+            const result = await makeRequest(`${API_BASE}/products/${currentProductId}/generate-barcode`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (result.success) {
+                const barcode = result.data.barcode;
+                document.getElementById('barcode').value = barcode;
+                showResult('productResult', `✅ Barcode generated: ${barcode} (${result.data.barcodeType})`, 'success');
+            } else {
+                showResult('productResult', `❌ Failed to generate barcode: ${result.data?.message || result.error}`, 'error');
+            }
+        }
+
+        async function getProducts() {
+            if (!authToken) {
+                showResult('productResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const result = await makeRequest(`${API_BASE}/products`);
+
+            if (result.success) {
+                showResult('productResult', result.data, 'success');
+            } else {
+                showResult('productResult', `❌ Failed to get products: ${result.data?.error || result.error}`, 'error');
+            }
+        }
+
+        async function getLowStock() {
+            if (!authToken) {
+                showResult('productResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const result = await makeRequest(`${API_BASE}/products/low-stock`);
+
+            if (result.success) {
+                showResult('productResult', result.data.length ? result.data : '✅ No low stock products found', 'info');
+            } else {
+                showResult('productResult', `❌ Failed to check low stock: ${result.data?.error || result.error}`, 'error');
+            }
+        }
+
+        async function bulkGenerateBarcodes() {
+            if (!authToken) {
+                showResult('productResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const data = {
+                type: 'EAN-13',
+                companyPrefix: '123'
+            };
+
+            const result = await makeRequest(`${API_BASE}/products/bulk-generate-barcodes`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (result.success) {
+                showResult('productResult', `✅ Generated ${result.data.stats.successful} barcodes successfully`, 'success');
+            } else {
+                showResult('productResult', `❌ Failed to generate barcodes: ${result.data?.message || result.error}`, 'error');
+            }
+        }
+
+        // Barcode Scanner Functions
+        async function scanBarcode() {
+            if (!authToken) {
+                showResult('scanResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const barcode = document.getElementById('barcode').value;
+            if (!barcode) {
+                showResult('scanResult', '❌ Please enter a barcode', 'error');
+                return;
+            }
+
+            const result = await makeRequest(`${API_BASE}/pos/scan/${barcode}`);
+
+            if (result.success) {
+                showResult('scanResult', `✅ Product found: ${result.data.name} - $${result.data.price}`, 'success');
+                console.log('Full scan result:', result.data);
+            } else {
+                showResult('scanResult', `❌ Product not found for barcode: ${barcode}`, 'error');
+            }
+        }
+
+        async function validateBarcode() {
+            const barcode = document.getElementById('barcode').value;
+            if (!barcode) {
+                showResult('scanResult', '❌ Please enter a barcode', 'error');
+                return;
+            }
+
+            const data = { barcode };
+            const result = await makeRequest(`${API_BASE}/products/validate-barcode`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (result.success) {
+                const info = result.data;
+                showResult('scanResult', `✅ Barcode is valid: ${info.type} format`, 'success');
+            } else {
+                showResult('scanResult', `❌ Invalid barcode format`, 'error');
+            }
+        }
+
+        async function quickAdd() {
+            if (!authToken) {
+                showResult('scanResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const barcode = document.getElementById('barcode').value;
+            if (!barcode) {
+                showResult('scanResult', '❌ Please enter a barcode', 'error');
+                return;
+            }
+
+            const data = { quantity: 1, sessionId: 'test-session-1' };
+            const result = await makeRequest(`${API_BASE}/pos/quick-add/${barcode}`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (result.success) {
+                showResult('scanResult', `✅ Added to cart: ${result.data.item.productName} x${result.data.item.quantity}`, 'success');
+            } else {
+                showResult('scanResult', `❌ Failed to add item: ${result.data?.message || result.error}`, 'error');
+            }
+        }
+
+        // POS Functions
+        async function createPOSSale() {
+            if (!authToken) {
+                showResult('posResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            // This is a simplified example - in a real app, you'd have a cart with multiple items
+            if (!currentProductId) {
+                showResult('posResult', '❌ Please create a product first', 'error');
+                return;
+            }
+
+            const data = {
+                items: [{
+                    productId: currentProductId,
+                    quantity: 1
+                }],
+                paymentMethod: document.getElementById('paymentMethod').value,
+                amountTendered: parseFloat(document.getElementById('amountTendered').value),
+                customerInfo: {
+                    name: 'Walk-in Customer'
+                }
+            };
+
+            const result = await makeRequest(`${API_BASE}/pos/sales`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+
+            if (result.success) {
+                lastSaleId = result.data.id;
+                showResult('posResult', `✅ Sale completed! Sale #: ${result.data.saleNumber}`, 'success');
+            } else {
+                showResult('posResult', `❌ Failed to create sale: ${result.data?.message || result.error}`, 'error');
+            }
+        }
+
+        async function getDailySales() {
+            if (!authToken) {
+                showResult('posResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const today = new Date().toISOString().split('T')[0];
+            const result = await makeRequest(`${API_BASE}/pos/reports/daily?date=${today}`);
+
+            if (result.success) {
+                showResult('posResult', result.data, 'success');
+            } else {
+                showResult('posResult', `❌ Failed to get daily sales: ${result.data?.message || result.error}`, 'error');
+            }
+        }
+
+        async function getScanStats() {
+            if (!authToken) {
+                showResult('posResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const result = await makeRequest(`${API_BASE}/pos/scan/stats`);
+
+            if (result.success) {
+                showResult('posResult', result.data, 'info');
+            } else {
+                showResult('posResult', `❌ Failed to get scan stats: ${result.data?.message || result.error}`, 'error');
+            }
+        }
+
+        async function getAllSales() {
+            if (!authToken) {
+                showResult('posResult', '❌ Please login first', 'error');
+                return;
+            }
+
+            const result = await makeRequest(`${API_BASE}/pos/sales`);
+
+            if (result.success) {
+                showResult('posResult', result.data, 'info');
+            } else {
+                showResult('posResult', `❌ Failed to get sales: ${result.data?.message || result.error}`, 'error');
+            }
+        }
+
+        async function generateReceipt() {
+            if (!authToken || !lastSaleId) {
+                showResult('posResult', '❌ Please complete a sale first', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/pos/sales/${lastSaleId}/receipt`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `receipt-${lastSaleId}.pdf`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    
+                    showResult('posResult', '✅ Receipt generated and downloaded!', 'success');
+                } else {
+                    showResult('posResult', '❌ Failed to generate receipt', 'error');
+                }
+            } catch (error) {
+                showResult('posResult', `❌ Receipt generation error: ${error.message}`, 'error');
+            }
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && e.target.id === 'barcode') {
+                scanBarcode();
+            }
+        });
+    </script>
+</body>
+</html>
