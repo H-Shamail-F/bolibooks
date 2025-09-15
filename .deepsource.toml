@@ -1,6 +1,9 @@
 version = 1
 
 [[analyzers]]
+name = "test-coverage"
+
+[[analyzers]]
 name = "shell"
 
 [[analyzers]]
@@ -14,7 +17,10 @@ name = "javascript"
 
   [analyzers.meta]
   plugins = ["react"]
-  environment = ["nodejs"]
+  environment = [
+    "nodejs",
+    "browser"
+  ]
 
 [[analyzers]]
 name = "java"
