@@ -1,10 +1,29 @@
 version = 1
 
 [[analyzers]]
-name = "csharp"
-
-[[analyzers]]
-name = "test-coverage"
+name = "shell"
 
 [[analyzers]]
 name = "sql"
+
+[[analyzers]]
+name = "secrets"
+
+[[analyzers]]
+name = "javascript"
+
+  [analyzers.meta]
+  plugins = ["react"]
+  environment = ["nodejs"]
+
+[[analyzers]]
+name = "java"
+
+  [analyzers.meta]
+  runtime_version = "11"
+
+[[analyzers]]
+name = "python"
+
+  [analyzers.meta]
+  runtime_version = "3.x.x"
